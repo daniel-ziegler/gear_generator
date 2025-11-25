@@ -1,0 +1,378 @@
+<html>
+<head>
+<title>Gear Chain - 25:5 Ratio</title>
+<style type="text/css">
+body {
+    margin: 20px;
+    font-family: helvetica, arial, sans-serif;
+    background-color: #f5f5f5;
+}
+#container {
+    text-align: center;
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+h1 {
+    margin: 0 0 20px 0;
+    font-size: 24px;
+    color: #333;
+}
+canvas {
+    border: 1px solid #ddd;
+    background-color: white;
+}
+.info {
+    margin-top: 20px;
+    font-size: 14px;
+    color: #666;
+}
+</style>
+</head>
+<body>
+<div id="container">
+    <h1>Interlocking Gear Chain (25:5 Ratio)</h1>
+    <canvas id="gear_canvas" width="1200" height="400"></canvas>
+    <div class="info">
+        Each axle has two gears: 25 teeth (large) and 5 teeth (small)<br>
+        The small gear on one axle meshes with the large gear on the next axle<br>
+        Gear ratio per stage: 5:1 reduction
+    </div>
+</div>
+
+<script>
+// Graphics library
+var graphics = {
+    component_to_hex: function(c) {
+        var hex = c.toString(16);
+        return hex.length == 1 ? "0" + hex : hex;
+    },
+
+    rgb_to_hex: function(r, g, b) {
+        return "#" + this.component_to_hex(r) + this.component_to_hex(g) + this.component_to_hex(b);
+    },
+
+    init: function(canvas, bounds) {
+        var gctx = {
+            canvas: canvas,
+            context: canvas.getContext("2d"),
+            width: canvas.width,
+            height: canvas.height,
+            bounds: bounds,
+            colour: this.rgb_to_hex(0,0,0)
+        };
+        return gctx;
+    },
+
+    resize: function(gctx, width, height) {
+        gctx.canvas.width = width;
+        gctx.canvas.height = height;
+        gctx.width = width;
+        gctx.height = height;
+    },
+
+    clear: function(gctx) {
+        gctx.context.clearRect(0, 0, gctx.canvas.width, gctx.canvas.height);
+        gctx.canvas.width = gctx.canvas.width;
+        gctx.context.fillStyle='white';
+        gctx.context.fillRect(0, 0, gctx.canvas.width, gctx.canvas.height);
+        gctx.context.fillStyle='none';
+    },
+
+    color: function(gctx, r, g, b) {
+        gctx.colour = this.rgb_to_hex(r, g, b);
+    },
+
+    map_point: function(gctx, pnt) {
+        // Use uniform scaling to preserve aspect ratio
+        var scaleX = gctx.width / (gctx.bounds[1] - gctx.bounds[0]);
+        var scaleY = gctx.height / (gctx.bounds[3] - gctx.bounds[2]);
+        var scale = Math.min(scaleX, scaleY);
+
+        var worldWidth = gctx.bounds[1] - gctx.bounds[0];
+        var worldHeight = gctx.bounds[3] - gctx.bounds[2];
+        var offsetX = (gctx.width - worldWidth * scale) / 2;
+        var offsetY = (gctx.height - worldHeight * scale) / 2;
+
+        var mp = [offsetX + (pnt[0] - gctx.bounds[0]) * scale,
+                  offsetY + (pnt[1] - gctx.bounds[2]) * scale];
+        return mp;
+    },
+
+    rotate_point: function(cen, pnt, theta) {
+        var tpnt = [pnt[0]-cen[0], pnt[1]-cen[1]];
+        var rpnt = [Math.cos(theta)*tpnt[0] + Math.sin(theta)*tpnt[1],
+                    -Math.sin(theta)*tpnt[0]+Math.cos(theta)*tpnt[1]];
+        return [rpnt[0]+cen[0], rpnt[1]+cen[1]];
+    },
+
+    circle: function(gctx, center, rad) {
+        var cen = this.map_point(gctx, center);
+        var beg = this.map_point(gctx, [center[0]+rad, center[1]]);
+        gctx.context.beginPath();
+        gctx.context.arc(cen[0], cen[1], beg[0]-cen[0], beg[1]-cen[1], 2*Math.PI);
+        gctx.context.strokeStyle = gctx.colour;
+        gctx.context.stroke();
+    },
+
+    line: function(gctx, p0, p1) {
+        var mp0 = this.map_point(gctx, p0);
+        var mp1 = this.map_point(gctx, p1);
+        gctx.context.beginPath();
+        gctx.context.moveTo(mp0[0], mp0[1]);
+        gctx.context.lineTo(mp1[0], mp1[1]);
+        gctx.context.strokeStyle = gctx.colour;
+        gctx.context.stroke();
+    },
+
+    polyline: function(gctx, pnts, close) {
+        gctx.context.fillStyle = gctx.colour;
+        gctx.context.strokeStyle = '#000';
+        gctx.context.lineWidth = 0.5;
+        gctx.context.beginPath();
+        var p = this.map_point(gctx, pnts[0]);
+        gctx.context.moveTo(p[0], p[1]);
+        for(var i=1; i<pnts.length; i++) {
+            p = this.map_point(gctx, pnts[i]);
+            gctx.context.lineTo(p[0], p[1]);
+        }
+        gctx.context.closePath();
+        gctx.context.fill();
+        gctx.context.stroke();
+    }
+};
+
+// Gears library
+var gears = {
+    point_radius: function(pnt) {
+        return Math.sqrt(pnt[0]*pnt[0] + pnt[1]*pnt[1]);
+    },
+
+    rotate_point: function(cen, pnt, theta) {
+        var tpnt = [pnt[0]-cen[0], pnt[1]-cen[1]];
+        var rpnt = [Math.cos(theta)*tpnt[0] + Math.sin(theta)*tpnt[1],
+                    -Math.sin(theta)*tpnt[0]+Math.cos(theta)*tpnt[1]];
+        return [rpnt[0]+cen[0], rpnt[1]+cen[1]];
+    },
+
+    involute_point: function(r, theta) {
+        return [r*(Math.cos(theta)+theta*Math.sin(theta)),
+                -r*(Math.sin(theta)-theta*Math.cos(theta))];
+    },
+
+    involute_bisect: function(r_base, r_target) {
+        var theta_lo = 0.0;
+        var r_lo = this.point_radius(this.involute_point(r_base, theta_lo));
+        var theta_hi = Math.PI;
+        var r_hi = this.point_radius(this.involute_point(r_base, theta_hi));
+        if(r_hi < r_target)
+            return -1.0;
+
+        var theta_mi = (theta_lo+theta_hi)/2.0;
+        var r_mi;
+        for(var i=0; i<20; i++) {
+            theta_mi = (theta_lo+theta_hi)/2.0;
+            r_mi = this.point_radius(this.involute_point(r_base, theta_mi));
+            if(r_mi <= r_target) {
+                r_lo = r_mi;
+                theta_lo = theta_mi;
+            } else {
+                r_hi = r_mi;
+                theta_hi = theta_mi;
+            }
+        }
+        return theta_mi;
+    },
+
+    involute_curve: function(r_base, theta_max, r_min, r_max, N) {
+        var theta_lo = 0.0;
+        var theta_hi = this.involute_bisect(r_base, r_max);
+        var curve = [];
+        var cnt=0;
+        if(r_min < r_base) {
+            curve[cnt++] = [r_min, 0];
+        }
+        var dtheta = (theta_hi-theta_lo)/(N-1);
+        for(var i=0; i<N; i++) {
+            curve[cnt++] = this.involute_point(r_base, i*dtheta+theta_lo);
+        }
+        return curve;
+    },
+
+    pitch_diameter: function(module, pressure_angle, num_teeth) {
+        return module*num_teeth;
+    },
+
+    base_diameter: function(module, pressure_angle, num_teeth) {
+        return this.pitch_diameter(module,pressure_angle,num_teeth)*Math.cos(pressure_angle);
+    },
+
+    dedendum: function(module, pressure_angle, num_teeth) {
+        return 1.2*module;
+    },
+
+    addendum: function(module, pressure_angle, num_teeth) {
+        return 1.0*module;
+    },
+
+    tooth_thickness: function(module, pressure_angle, num_teeth) {
+        return Math.PI*this.pitch_diameter(module,pressure_angle,num_teeth)/(2.0*num_teeth);
+    },
+
+    generate: function(module, pressure_angle, num_teeth) {
+        var Rp = this.pitch_diameter(module,pressure_angle,num_teeth)/2.0;
+        var Rb = this.base_diameter(module,pressure_angle,num_teeth)/2.0;
+        var Rd = Rp - this.dedendum(module,pressure_angle,num_teeth);
+        var Ra = Rp + this.addendum(module,pressure_angle,num_teeth);
+        var t = this.tooth_thickness(module,pressure_angle,num_teeth);
+
+        var p_cross = this.involute_point(Rb, this.involute_bisect(Rb, Rp));
+        var theta_cross = Math.atan2(p_cross[1], p_cross[0]);
+        var dtheta = t/Rp;
+
+        var tmp = this.involute_curve(Rb, Math.PI/2, Rd, Ra, 20);
+        var cnt = 0;
+        var involute = [];
+        for(var i=0; i<tmp.length; i++) {
+            var tpnt = this.rotate_point([0,0], tmp[i], +theta_cross-dtheta/2);
+            var angle1 = Math.atan2(tpnt[1], tpnt[0]);
+            if(angle1 < Math.PI/num_teeth && tpnt[1] > 0) {
+                involute[cnt++] = [tmp[i][0], tmp[i][1]];
+            }
+        }
+
+        var cnt = 0;
+        var gear = [];
+        for(var i=0; i<num_teeth; i++) {
+            var theta = i*Math.PI*2.0/(num_teeth)+theta_cross-dtheta/2;
+            var theta2 = i*Math.PI*2.0/(num_teeth)-theta_cross+dtheta/2;
+
+            for(var j=0; j<involute.length; j++) {
+                gear[cnt++] = this.rotate_point([0,0], [involute[j][0], involute[j][1]], theta);
+            }
+            for(var j=involute.length-1; j>=0; j--) {
+                gear[cnt++] = this.rotate_point([0,0], [involute[j][0], -involute[j][1]], theta2);
+            }
+        }
+        return gear;
+    },
+
+    translate_gear: function(gear, offset) {
+        var result = [];
+        for(var i=0; i<gear.length; i++) {
+            result[i] = [gear[i][0] + offset[0], gear[i][1] + offset[1]];
+        }
+        return result;
+    },
+
+    rotate_gear: function(gear, angle) {
+        var result = [];
+        for(var i=0; i<gear.length; i++) {
+            result[i] = this.rotate_point([0,0], gear[i], angle);
+        }
+        return result;
+    }
+};
+
+// Animation state
+var animationState = {
+    canvas: null,
+    ctx: null,
+    gear_large: null,
+    gear_small: null,
+    module: 1.0,
+    pressure_angle: 20.0 * Math.PI / 180.0,
+    num_large: 25,
+    num_small: 5,
+    num_axles: 4,
+    Rp_large: 0,
+    Rp_small: 0,
+    center_distance: 0,
+    base_angle: 0,
+    last_time: 0,
+    speed: 0.5  // radians per second for first axle
+};
+
+function initGearChain() {
+    var state = animationState;
+    state.canvas = document.getElementById('gear_canvas');
+
+    // Calculate dimensions
+    state.Rp_large = gears.pitch_diameter(state.module, state.pressure_angle, state.num_large) / 2.0;
+    state.Rp_small = gears.pitch_diameter(state.module, state.pressure_angle, state.num_small) / 2.0;
+    var Ra_large = state.Rp_large + gears.addendum(state.module, state.pressure_angle, state.num_large);
+
+    // Center distance between axles
+    state.center_distance = state.Rp_small + state.Rp_large;
+
+    // Set up canvas bounds
+    var total_width = state.center_distance * (state.num_axles - 1) + Ra_large * 2;
+    var total_height = Ra_large * 2 + 4;
+    var margin = 2;
+
+    state.ctx = graphics.init(state.canvas, [-Ra_large - margin, total_width - Ra_large + margin, -total_height/2 - margin, total_height/2 + margin]);
+
+    // Generate base gears
+    state.gear_large = gears.generate(state.module, state.pressure_angle, state.num_large);
+    state.gear_small = gears.generate(state.module, state.pressure_angle, state.num_small);
+
+    state.last_time = performance.now();
+}
+
+function drawFrame(timestamp) {
+    var state = animationState;
+
+    // Calculate time delta and update angle
+    var dt = (timestamp - state.last_time) / 1000;
+    state.last_time = timestamp;
+    state.base_angle += state.speed * dt;
+
+    // Clear canvas
+    graphics.clear(state.ctx);
+
+    // Calculate rotation for each axle
+    // Gear ratio: small (5) meshes with large (25) = 5:1 reduction
+    // Each stage: next_axle_rotation = -prev_axle_rotation * (num_small / num_large)
+    var gear_ratio = state.num_small / state.num_large;  // 0.2
+
+    // Draw the gear chain
+    for(var i = 0; i < state.num_axles; i++) {
+        var x_pos = i * state.center_distance;
+
+        // Calculate rotation for this axle
+        // Axle 0: base_angle
+        // Axle 1: -base_angle * ratio (opposite direction, slower)
+        // Axle 2: base_angle * ratio^2 (same direction, even slower)
+        // Axle 3: -base_angle * ratio^3
+        var rotation = state.base_angle * Math.pow(-gear_ratio, i);
+
+        // Draw large gear (blue)
+        var large_rotated = gears.rotate_gear(state.gear_large, rotation);
+        var large_positioned = gears.translate_gear(large_rotated, [x_pos, 0]);
+        graphics.color(state.ctx, 150, 180, 220);
+        graphics.polyline(state.ctx, large_positioned, true);
+
+        // Draw small gear (red) - same axle, same rotation
+        var small_rotated = gears.rotate_gear(state.gear_small, rotation);
+        var small_positioned = gears.translate_gear(small_rotated, [x_pos, 0]);
+        graphics.color(state.ctx, 220, 150, 150);
+        graphics.polyline(state.ctx, small_positioned, true);
+
+        // Draw axle center marker
+        graphics.color(state.ctx, 0, 0, 0);
+        graphics.circle(state.ctx, [x_pos, 0], 0.8);
+    }
+
+    // Continue animation
+    requestAnimationFrame(drawFrame);
+}
+
+// Start when page loads
+window.onload = function() {
+    initGearChain();
+    requestAnimationFrame(drawFrame);
+};
+</script>
+</body>
+</html>
