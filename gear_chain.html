@@ -19,6 +19,7 @@ canvas {
 <body>
 <canvas id="gear_canvas" width="800" height="800"></canvas>
 
+<script src="gear_math.js"></script>
 <script>
 // Graphics library
 var graphics = {
@@ -199,7 +200,7 @@ var gears = {
 var puzzle = {
     module: 1.0,
     pa: 20 * Math.PI / 180,
-    baseSpeed: 0.1,  // slow rotation
+    baseSpeed: 0.4,
 
     // Axles: each has position, array of gear teeth, and mesh info
     // meshParent: which axle this meshes with
@@ -224,125 +225,100 @@ function setupPuzzle() {
     var center = [0, 0];
     var axles = [];
 
-    // Center gear: 5 teeth
+    // Center gear: 10 teeth (larger for more mesh options)
     axles.push({
         id: 'center',
         pos: center,
-        gears: [5],
+        gears: [10],
         colors: [[255, 100, 100]],
         meshParent: null,
         speedMult: 1
     });
 
-    // Branch angles (5 terminals roughly evenly spaced, rotated 90° so first branch points up)
-    var angles = [90, 162, 234, 306, 18].map(function(d) { return d * Math.PI / 180; });
+    // 8 branches at 45° intervals - testing varied NON-INTEGER ratios
+    // With center gear = 10 teeth
 
-    // Terminal ratios: 3, 25, 3, 12, 5
-    // We need to design gear trains to achieve these
-
-    // Branch 0: Ratio 3 (angle 0°, right)
-    // Path: center(5) -> intermediate(15/15) -> terminal(15)
-    // Ratio: 5/15 * 15/15 = 1/3, so terminal is 3x slower
-    var b0_i1_pos = posAt(center, angles[0], meshDist(5, 15));
+    // ========== Branch 0: 1.1:1 (0°, right) ==========
+    // center(10) -> terminal(11), ratio 11/10 = 1.1
+    var ang0 = 0;
+    var b0_pos = posAt(center, ang0, meshDist(10, 11));
     axles.push({
-        id: 'b0_i1', pos: b0_i1_pos, gears: [15, 15], colors: [[100, 150, 200], [100, 150, 200]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0
-    });
-    var b0_t_pos = posAt(b0_i1_pos, angles[0], meshDist(15, 15));
-    axles.push({
-        id: 'b0_t', pos: b0_t_pos, gears: [15], colors: [[255, 80, 80]],  // red
-        meshParent: 'b0_i1', meshGearIdx: 0, parentGearIdx: 1, isTerminal: true
+        id: 'b0', pos: b0_pos, gears: [11], colors: [[255, 80, 80]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '1.1'
     });
 
-    // Branch 1: Ratio 25 (angle 72°, upper right)
-    // Path: center(5) -> i1(25/5) -> terminal(25)
-    // Ratio: 5/25 * 5/25 = 1/25
-    var b1_i1_pos = posAt(center, angles[1], meshDist(5, 25));
+    // ========== Branch 1: 1.2:1 (45°) ==========
+    // center(10) -> terminal(12), ratio 12/10 = 1.2
+    var ang1 = Math.PI / 4;
+    var b1_pos = posAt(center, ang1, meshDist(10, 12));
     axles.push({
-        id: 'b1_i1', pos: b1_i1_pos, gears: [25, 5], colors: [[180, 130, 200], [180, 130, 200]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0
-    });
-    var b1_t_pos = posAt(b1_i1_pos, angles[1], meshDist(5, 25));
-    axles.push({
-        id: 'b1_t', pos: b1_t_pos, gears: [25], colors: [[255, 130, 20]],  // orange
-        meshParent: 'b1_i1', meshGearIdx: 0, parentGearIdx: 1, isTerminal: true
+        id: 'b1', pos: b1_pos, gears: [12], colors: [[255, 160, 40]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '1.2'
     });
 
-    // Branch 2: Ratio 3 (angle 144°, upper left)
-    // Path: center(5) -> intermediate(15/15) -> terminal(15)
-    var b2_i1_pos = posAt(center, angles[2], meshDist(5, 15));
+    // ========== Branch 2: 1.3:1 (90°, up) ==========
+    // center(10) -> terminal(13), ratio 13/10 = 1.3
+    var ang2 = Math.PI / 2;
+    var b2_pos = posAt(center, ang2, meshDist(10, 13));
     axles.push({
-        id: 'b2_i1', pos: b2_i1_pos, gears: [15, 15], colors: [[200, 180, 100], [200, 180, 100]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0
-    });
-    var b2_t_pos = posAt(b2_i1_pos, angles[2], meshDist(15, 15));
-    axles.push({
-        id: 'b2_t', pos: b2_t_pos, gears: [15], colors: [[255, 220, 50]],  // yellow
-        meshParent: 'b2_i1', meshGearIdx: 0, parentGearIdx: 1, isTerminal: true
+        id: 'b2', pos: b2_pos, gears: [13], colors: [[255, 220, 50]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '1.3'
     });
 
-    // Branch 3: Ratio 12 (angle 216°, lower left)
-    // 12 = 3 * 4, so: center(5) -> i1(15/5) -> terminal(20)
-    // Ratio: 5/15 * 5/20 = 1/12
-    var b3_i1_pos = posAt(center, angles[3], meshDist(5, 15));
+    // ========== Branch 3: 1.5:1 (135°) ==========
+    // center(10) -> terminal(15), ratio 15/10 = 1.5 ("half" ratio)
+    var ang3 = 3 * Math.PI / 4;
+    var b3_pos = posAt(center, ang3, meshDist(10, 15));
     axles.push({
-        id: 'b3_i1', pos: b3_i1_pos, gears: [15, 5], colors: [[100, 200, 200], [100, 200, 200]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0
-    });
-    var b3_t_pos = posAt(b3_i1_pos, angles[3], meshDist(5, 20));
-    axles.push({
-        id: 'b3_t', pos: b3_t_pos, gears: [20], colors: [[80, 200, 120]],  // green
-        meshParent: 'b3_i1', meshGearIdx: 0, parentGearIdx: 1, isTerminal: true,
-        zPriority: 1  // draw on top
+        id: 'b3', pos: b3_pos, gears: [15], colors: [[80, 200, 80]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '1.5'
     });
 
-    // Branch 4: Ratio 5 (angle 288°, lower right)
-    // Direct: center(5) -> terminal(25)
-    // But let's add an idler to push it out further
-    var b4_i1_pos = posAt(center, angles[4], meshDist(5, 20));
+    // ========== Branch 4: 1.7:1 (180°, left) ==========
+    // center(10) -> terminal(17), ratio 17/10 = 1.7
+    var ang4 = Math.PI;
+    var b4_pos = posAt(center, ang4, meshDist(10, 17));
     axles.push({
-        id: 'b4_i1', pos: b4_i1_pos, gears: [20, 20], colors: [[200, 120, 150], [200, 120, 150]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0
+        id: 'b4', pos: b4_pos, gears: [17], colors: [[80, 200, 200]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '1.7'
     });
-    var b4_i2_pos = posAt(b4_i1_pos, angles[4], meshDist(20, 20));
-    axles.push({
-        id: 'b4_i2', pos: b4_i2_pos, gears: [20, 4], colors: [[200, 120, 150], [200, 120, 150]],
-        meshParent: 'b4_i1', meshGearIdx: 0, parentGearIdx: 1
-    });
-    var b4_t_pos = posAt(b4_i2_pos, angles[4], meshDist(4, 20));
-    axles.push({
-        id: 'b4_t', pos: b4_t_pos, gears: [20], colors: [[80, 200, 120]],
-        meshParent: 'b4_i2', meshGearIdx: 0, parentGearIdx: 1, isTerminal: true
-    });
-    // Ratio check: 5/20 * 20/20 * 4/20 = 5/20 * 1 * 4/20 = 20/400 = 1/20... not quite 5
-    // Let me fix: we need ratio 5, meaning terminal is 5x slower
-    // 5/20 = 1/4, then 20/20 = 1, then 4/20 = 1/5, total = 1/20
-    // That's ratio 20, not 5. Let me redesign.
 
-    // Actually for ratio 5: center(5) -> terminal(25) directly
-    // Distance = meshDist(5, 25) = 15, that's close enough
+    // ========== Branch 5: 1.9:1 (225°) ==========
+    // center(10) -> terminal(19), ratio 19/10 = 1.9 (close to 2)
+    var ang5 = 5 * Math.PI / 4;
+    var b5_pos = posAt(center, ang5, meshDist(10, 19));
+    axles.push({
+        id: 'b5', pos: b5_pos, gears: [19], colors: [[150, 100, 255]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '1.9'
+    });
+
+    // ========== Branch 6: 2.1:1 (270°, down) ==========
+    // center(10) -> terminal(21), ratio 21/10 = 2.1 (just above 2)
+    var ang6 = 3 * Math.PI / 2;
+    var b6_pos = posAt(center, ang6, meshDist(10, 21));
+    axles.push({
+        id: 'b6', pos: b6_pos, gears: [21], colors: [[255, 100, 150]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '2.1'
+    });
+
+    // ========== Branch 7: 2.5:1 (315°) ==========
+    // center(10) -> terminal(25), ratio 25/10 = 2.5 ("half" ratio)
+    var ang7 = 7 * Math.PI / 4;
+    var b7_pos = posAt(center, ang7, meshDist(10, 25));
+    axles.push({
+        id: 'b7', pos: b7_pos, gears: [25], colors: [[200, 200, 100]],
+        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
+        label: '2.5'
+    });
 
     puzzle.axles = axles;
-
-    // Recalculate branch 4 for ratio 5
-    // Remove the wrong ones and redo
-    puzzle.axles = puzzle.axles.filter(function(a) {
-        return !a.id.startsWith('b4');
-    });
-
-    // Branch 4: Ratio 5 - simple path with idler to extend
-    // center(5) -> i1(25/25) -> terminal(25)
-    // Ratio: 5/25 * 25/25 = 1/5
-    var b4_i1_pos = posAt(center, angles[4], meshDist(5, 25));
-    puzzle.axles.push({
-        id: 'b4_i1', pos: b4_i1_pos, gears: [25, 25], colors: [[200, 120, 150], [200, 120, 150]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0
-    });
-    var b4_t_pos = posAt(b4_i1_pos, angles[4], meshDist(25, 25));
-    puzzle.axles.push({
-        id: 'b4_t', pos: b4_t_pos, gears: [25], colors: [[80, 150, 255]],  // blue
-        meshParent: 'b4_i1', meshGearIdx: 0, parentGearIdx: 1, isTerminal: true
-    });
 
     // Calculate speed multipliers and mesh phases
     calculateSpeeds();
@@ -397,7 +373,6 @@ function calculatePhaseOffsets() {
 
     // Center gear has no phase offset
     axleMap['center'].phaseOffset = 0;
-    axleMap['center'].accumulatedPhase = 0;
 
     // BFS from center to compute phase offsets
     var queue = ['center'];
@@ -411,36 +386,37 @@ function calculatePhaseOffsets() {
                 var parentGearTeeth = parent.gears[axle.parentGearIdx];
                 var childGearTeeth = axle.gears[axle.meshGearIdx];
 
-                // For proper meshing, child's gap must align with parent's tooth
-                // This requires a half-tooth offset (π/childTeeth) as the base
+                // Calculate the angle from parent center to child center (mesh direction)
+                var dx = axle.pos[0] - parent.pos[0];
+                var dy = axle.pos[1] - parent.pos[1];
+                var meshAngle = Math.atan2(dy, dx);
 
-                // Start with the base offset for tooth-gap alignment
-                var offset = Math.PI / childGearTeeth;
+                var parentPhase = parent.phaseOffset || 0;
 
-                // Propagate accumulated phase from parent
-                // When parent has accumulated phase shift, it affects child
-                // The phase relationship depends on the gear ratio
-                var parentAccPhase = parent.accumulatedPhase || 0;
+                // Use the standard GearMath calculation
+                var offset = GearMath.calculateChildPhase(
+                    parentPhase, meshAngle, parentGearTeeth, childGearTeeth
+                );
 
-                // If parent has multiple gears and we're meshing with a DIFFERENT gear
-                // than the one connected to its parent, we need an additional offset
-                // This is because compound gears have their teeth aligned at angle 0,
-                // but different tooth counts mean the phase relationship differs
-                if (parent.meshParent !== null && parent.gears.length > 1) {
-                    var parentInputGearIdx = parent.meshGearIdx || 0;
-                    if (axle.parentGearIdx !== parentInputGearIdx) {
-                        // Meshing through the "output" gear of a compound pair
-                        // Add half tooth offset based on the input gear
-                        var parentInputTeeth = parent.gears[parentInputGearIdx];
-                        offset += Math.PI / parentInputTeeth;
+                // Compound gear correction:
+                // When parent is a compound gear with different input/output teeth,
+                // and child teeth doesn't match either, add halfTooth back
+                // (canceling the subtraction in the standard formula)
+                if (parent.gears.length > 1) {
+                    var inputTeeth = parent.gears[parent.meshGearIdx || 0];
+                    var outputTeeth = parent.gears[axle.parentGearIdx];
+                    if (inputTeeth !== outputTeeth &&
+                        childGearTeeth !== inputTeeth &&
+                        childGearTeeth !== outputTeeth) {
+                        var halfTooth = Math.PI / childGearTeeth;
+                        offset += halfTooth;
+                        // Re-normalize
+                        offset = offset % (2 * Math.PI);
+                        if (offset < 0) offset += 2 * Math.PI;
                     }
                 }
 
                 axle.phaseOffset = offset;
-
-                // Track accumulated phase for downstream gears
-                // The phase accumulates as we go through the gear train
-                axle.accumulatedPhase = parentAccPhase + offset;
 
                 queue.push(axle.id);
             }
@@ -536,7 +512,7 @@ function drawFrame(timestamp) {
     anim.ctx.context.fillText('1', 0, 0);
     anim.ctx.context.restore();
 
-    // Draw "?" labels inside terminal/leaf gears, rotating with them
+    // Draw branch number labels inside terminal/leaf gears, rotating with them
     puzzle.axles.forEach(function(axle) {
         if (!axle.isTerminal) return;
 
@@ -546,6 +522,9 @@ function drawFrame(timestamp) {
         graphics.color(anim.ctx, 255, 255, 255);
         graphics.fillCircle(anim.ctx, axle.pos, 2.0);
 
+        // Extract branch number from id (e.g., 'b0' -> '0')
+        var branchNum = axle.id.replace('b', '');
+
         anim.ctx.context.save();
         anim.ctx.context.translate(pos[0], pos[1]);
         anim.ctx.context.rotate(-rotation);
@@ -553,7 +532,7 @@ function drawFrame(timestamp) {
         anim.ctx.context.fillStyle = '#000';
         anim.ctx.context.textAlign = 'center';
         anim.ctx.context.textBaseline = 'middle';
-        anim.ctx.context.fillText('?', 0, 0);
+        anim.ctx.context.fillText(branchNum, 0, 0);
         anim.ctx.context.restore();
     });
 
