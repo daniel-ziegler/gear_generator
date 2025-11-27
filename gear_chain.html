@@ -291,9 +291,8 @@ var gears = {
             var outerRp = module * outer_teeth / 2.0;
             var outerRootR = outerRp - 1.2 * module;
 
-            // Position outer gear so its root circle is outside internal teeth
-            var gapBetween = 2.5 * module;  // Rim thickness between internal and external teeth
-            var outerOffset = internalOuterR + gapBetween - outerRootR;
+            // Position outer gear at standard position (pitch radius = module * teeth / 2)
+            var outerOffset = 0;  // No offset - standard gear position
 
             outerProfile = outerGear.map(function(p) {
                 var r = self.point_radius(p);
@@ -389,7 +388,7 @@ function setupPuzzle() {
     });
 
     // Ring gear (internal teeth + external teeth)
-    var ringOuterTeeth = 30;  // External teeth for meshing with other gears
+    var ringOuterTeeth = 33;  // External teeth for meshing with other gears
     axles.push({
         id: 'ring',
         pos: center,
@@ -435,6 +434,37 @@ function setupPuzzle() {
             orbitPhase: angle
         });
     }
+
+    // Small gear meshing with carrier outer gear
+    var carrierMeshTeeth = 10;
+    var carrierMeshAngle = Math.PI * 0.75;  // Upper left
+    axles.push({
+        id: 'carrierMesh',
+        pos: posAt(center, carrierMeshAngle, meshDist(carrierOuterTeeth, carrierMeshTeeth)),
+        gears: [carrierMeshTeeth],
+        colors: [[200, 100, 150]],
+        meshParent: 'carrier',
+        meshGearIdx: 0,
+        parentGearIdx: 0,
+        meshDir: -1,
+        phaseOffset: 0
+    });
+
+    // Small gear meshing with ring gear external teeth
+    var ringMeshTeeth = 10;
+    var ringMeshAngle = Math.PI * 0.25;  // Upper right
+    axles.push({
+        id: 'ringMesh',
+        pos: posAt(center, ringMeshAngle, meshDist(ringOuterTeeth, ringMeshTeeth)),
+        gears: [ringMeshTeeth],
+        colors: [[150, 200, 100]],
+        meshParent: 'ring',
+        meshGearIdx: 0,
+        parentGearIdx: 0,
+        meshDir: -1,
+        phaseOffset: 0,
+        meshWithOuter: true  // Flag to mesh with ring's outer teeth
+    });
 
     puzzle.axles = axles;
 
@@ -494,7 +524,10 @@ function calculateSpeeds() {
 
         puzzle.axles.forEach(function(axle) {
             if (axle.meshParent === currentId && axle.speedMult === undefined) {
-                var parentGearTeeth = current.gears[axle.parentGearIdx];
+                // For ring gear outer teeth, use outerTeeth instead of gears[]
+                var parentGearTeeth = axle.meshWithOuter && current.outerTeeth
+                    ? current.outerTeeth
+                    : current.gears[axle.parentGearIdx];
                 var myGearTeeth = axle.gears[axle.meshGearIdx];
 
                 // Speed ratio: my speed = parent speed * (parent teeth / my teeth)
@@ -528,7 +561,10 @@ function calculatePhaseOffsets() {
 
         puzzle.axles.forEach(function(axle) {
             if (axle.meshParent === currentId && axle.phaseOffset === undefined) {
-                var parentGearTeeth = parent.gears[axle.parentGearIdx];
+                // For ring gear outer teeth, use outerTeeth instead of gears[]
+                var parentGearTeeth = axle.meshWithOuter && parent.outerTeeth
+                    ? parent.outerTeeth
+                    : parent.gears[axle.parentGearIdx];
                 var childGearTeeth = axle.gears[axle.meshGearIdx];
 
                 var dx = axle.pos[0] - parent.pos[0];
@@ -603,6 +639,33 @@ function drawFrame(timestamp) {
             axle.orbitSpeed = carrierSpeed;
         }
     });
+
+    // Update gears meshing with carrier and ring outer teeth
+    if (axleMap['carrierMesh']) {
+        var cm = axleMap['carrierMesh'];
+        var carrier = axleMap['carrier'];
+        cm.speedMult = carrierSpeed * (p.carrierOuterTeeth / cm.gears[0]);
+        // Calculate phase offset
+        var dx = cm.pos[0] - carrier.pos[0];
+        var dy = cm.pos[1] - carrier.pos[1];
+        var meshAngle = Math.atan2(dy, dx);
+        cm.phaseOffset = GearMath.calculateChildPhase(
+            carrier.phaseOffset || 0, meshAngle, p.carrierOuterTeeth, cm.gears[0]
+        );
+    }
+    if (axleMap['ringMesh']) {
+        var rm = axleMap['ringMesh'];
+        var ring = axleMap['ring'];
+        var ringOuterTeeth = ring.outerTeeth;
+        rm.speedMult = ringSpeed * (ringOuterTeeth / rm.gears[0]);
+        // Calculate phase offset
+        var dx = rm.pos[0] - ring.pos[0];
+        var dy = rm.pos[1] - ring.pos[1];
+        var meshAngle = Math.atan2(dy, dx);
+        rm.phaseOffset = GearMath.calculateChildPhase(
+            ring.phaseOffset || 0, meshAngle, ringOuterTeeth, rm.gears[0]
+        );
+    }
 
     puzzle.axles.forEach(function(axle) {
         if (axle.orbits) {
