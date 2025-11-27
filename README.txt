@@ -3,6 +3,8 @@ gear_generator: a simple interactive javascript gear generator
 (c) James Gregson 2016
 james.gregson@gmail.com
 
+gear_chain parts (c) Daniel Ziegler 2025, same license
+
 License
 ======================================================== 
 Use for whatever you want, at your own risk. Bug reports and feature requests are welcome.
