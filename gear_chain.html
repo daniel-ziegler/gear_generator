@@ -146,6 +146,7 @@ var gears = {
         return Math.sqrt(pnt[0]*pnt[0] + pnt[1]*pnt[1]);
     },
 
+    // Rotate point around center. Math convention (CCW-positive).
     rotate_point: function(cen, pnt, theta) {
         var tpnt = [pnt[0]-cen[0], pnt[1]-cen[1]];
         var c = Math.cos(theta), s = Math.sin(theta);
@@ -217,6 +218,7 @@ var gears = {
         return gear.map(function(p) { return [p[0] + offset[0], p[1] + offset[1]]; });
     },
 
+    // Rotate gear shape. Math convention (CCW-positive).
     rotate: function(gear, angle) {
         var c = Math.cos(angle), s = Math.sin(angle);
         return gear.map(function(p) { return [c*p[0] + s*p[1], -s*p[0] + c*p[1]]; });
@@ -244,9 +246,9 @@ var gears = {
         };
     },
 
-    // Generate internal (ring) gear - normal teeth pointing inward
-    generateInternal: function(module, pressure_angle, num_teeth, rim_thickness) {
-        // Generate a normal external gear, then flip it so teeth point inward
+    // Generate internal (ring) gear with optional external teeth
+    generateInternal: function(module, pressure_angle, num_teeth, outer_teeth) {
+        // Generate internal teeth profile
         var externalGear = this.generate(module, pressure_angle, num_teeth);
 
         // Find min and max radius of the external gear
@@ -258,30 +260,62 @@ var gears = {
         }
 
         var Rp = module * num_teeth / 2.0;
-        var toothHeight = maxR - minR;
-
-        // Outer rim thickness
-        var rimThick = rim_thickness || 2.5 * module;
-        var Ro = Rp + rimThick;
 
         // Inner edge of teeth (tooth roots) - positioned for visual meshing with planets
-        // Standard would be Rp + 1.2*module, but we offset slightly inward for better visuals
-        var rootR = Rp + 1.0 * module;  // Teeth extend slightly further inward
+        var rootR = Rp + 1.0 * module;
 
         // Mirror and offset: flip profile and position so roots are at rootR
         var self = this;
         var internalProfile = externalGear.map(function(p) {
             var r = self.point_radius(p);
             var angle = Math.atan2(p[1], p[0]);
-            // Flip: tips become roots, roots become tips
             var flippedR = maxR + minR - r;
-            // Offset to position roots at rootR
             var offset = rootR - maxR;
             var newR = flippedR + offset;
             return [newR * Math.cos(angle), newR * Math.sin(angle)];
         });
 
-        return { profile: internalProfile, outerRadius: Ro };
+        // Find internal profile's outer edge (where internal tooth roots are)
+        var internalOuterR = 0;
+        for (var i = 0; i < internalProfile.length; i++) {
+            var r = this.point_radius(internalProfile[i]);
+            if (r > internalOuterR) internalOuterR = r;
+        }
+
+        // Generate external teeth if requested
+        var outerProfile = null;
+        var outerRadius = internalOuterR + 2 * module; // default rim if no outer teeth
+
+        if (outer_teeth) {
+            var outerGear = this.generate(module, pressure_angle, outer_teeth);
+            var outerRp = module * outer_teeth / 2.0;
+            var outerRootR = outerRp - 1.2 * module;
+
+            // Position outer gear so its root circle is outside internal teeth
+            var gapBetween = 2.5 * module;  // Rim thickness between internal and external teeth
+            var outerOffset = internalOuterR + gapBetween - outerRootR;
+
+            outerProfile = outerGear.map(function(p) {
+                var r = self.point_radius(p);
+                var angle = Math.atan2(p[1], p[0]);
+                var newR = r + outerOffset;
+                return [newR * Math.cos(angle), newR * Math.sin(angle)];
+            });
+
+            // Find outer radius (tip of external teeth)
+            outerRadius = 0;
+            for (var i = 0; i < outerProfile.length; i++) {
+                var r = this.point_radius(outerProfile[i]);
+                if (r > outerRadius) outerRadius = r;
+            }
+        }
+
+        return {
+            profile: internalProfile,
+            outerProfile: outerProfile,
+            outerRadius: outerRadius,
+            innerOuterR: internalOuterR  // Where internal tooth roots are
+        };
     }
 };
 
@@ -306,9 +340,9 @@ function setupPuzzle() {
         return m * (t1 + t2) / 2;
     }
 
-    // Helper to position gear at angle and distance from another
+    // Helper to position gear at angle and distance from another (CCW-positive)
     function posAt(parent, angle, dist) {
-        return [parent[0] + dist * Math.cos(angle), parent[1] + dist * Math.sin(angle)];
+        return [parent[0] + dist * Math.cos(angle), parent[1] - dist * Math.sin(angle)];
     }
 
     var center = [0, 0];
@@ -322,7 +356,7 @@ function setupPuzzle() {
     var gearRatio = sunTeeth / planetTeeth;
 
     // Carrier outer gear teeth - should be larger than ring gear
-    var carrierOuterTeeth = 36;
+    var carrierOuterTeeth = 42;
     var orbitRadius = meshDist(sunTeeth, planetTeeth);
 
     // Store config for dynamic updates
@@ -343,7 +377,7 @@ function setupPuzzle() {
         colors: [[180, 130, 70]],  // Orange/bronze - distinct from blue planets
         meshParent: null,
         speedMult: 0,  // Updated dynamically (carrier speed)
-        meshDir: -1,  // Negative because orbit uses math convention (CCW+) but gears.rotate uses CW+
+        meshDir: 1,
         phaseOffset: 0,
         isCarrier: true,
         carrierConfig: {
@@ -351,14 +385,16 @@ function setupPuzzle() {
             spokeCount: numPlanets,
             spokeWidth: 1.5
         },
-        zPriority: -10  // Draw behind everything
+        zPriority: -2
     });
 
-    // Ring gear (internal teeth)
+    // Ring gear (internal teeth + external teeth)
+    var ringOuterTeeth = 30;  // External teeth for meshing with other gears
     axles.push({
         id: 'ring',
         pos: center,
         gears: [ringTeeth],
+        outerTeeth: ringOuterTeeth,
         colors: [[120, 90, 200]],
         meshParent: null,
         speedMult: 0,  // Updated dynamically
@@ -418,13 +454,13 @@ function setupPuzzle() {
                 cfg.innerRadius, axle.gears[0], cfg.spokeCount, cfg.spokeWidth
             );
         } else if (axle.isInternal) {
-            // Internal gear - generate ring profile
-            axle.gearShapes = axle.gears.map(function(teeth) {
-                if (!internalCache[teeth]) {
-                    internalCache[teeth] = gears.generateInternal(puzzle.module, puzzle.pa, teeth);
-                }
-                return internalCache[teeth];
-            });
+            // Internal gear - generate ring profile with optional outer teeth
+            var outerTeeth = axle.outerTeeth || null;
+            var cacheKey = axle.gears[0] + '_' + (outerTeeth || 'none');
+            if (!internalCache[cacheKey]) {
+                internalCache[cacheKey] = gears.generateInternal(puzzle.module, puzzle.pa, axle.gears[0], outerTeeth);
+            }
+            axle.gearShapes = [internalCache[cacheKey]];
         } else {
             // External gear
             axle.gearShapes = axle.gears.map(function(teeth) {
@@ -549,8 +585,9 @@ function drawFrame(timestamp) {
     document.getElementById('carrierVal').textContent = carrierSpeed.toFixed(2);
 
     // Update speeds based on sliders
+    // Planetary constraint (CCW-positive): sunTeeth*ωsun + ringTeeth*ωring = (sunTeeth+ringTeeth)*ωcarrier
     var p = puzzle.planetary;
-    var ringSpeed = (-p.sunTeeth * sunSpeed - (p.sunTeeth + p.ringTeeth) * carrierSpeed) / p.ringTeeth;
+    var ringSpeed = ((p.sunTeeth + p.ringTeeth) * carrierSpeed - p.sunTeeth * sunSpeed) / p.ringTeeth;
 
     // Update orbiting gears
     var axleMap = {};
@@ -570,16 +607,18 @@ function drawFrame(timestamp) {
     puzzle.axles.forEach(function(axle) {
         if (axle.orbits) {
             var parent = axleMap[axle.orbits];
+            // CCW-positive: negate sin for y to match rotate convention
             var orbitAngle = anim.baseAngle * axle.orbitSpeed + (axle.orbitPhase || 0);
             axle.pos = [
                 parent.pos[0] + axle.orbitRadius * Math.cos(orbitAngle),
-                parent.pos[1] + axle.orbitRadius * Math.sin(orbitAngle)
+                parent.pos[1] - axle.orbitRadius * Math.sin(orbitAngle)
             ];
-            // Recalculate phase for new mesh angle
+            // Mesh angle is negated due to CCW convention (actual angle = -orbitAngle)
+            var meshAngle = -orbitAngle;
             var parentGearTeeth = parent.gears[axle.parentGearIdx];
             var childGearTeeth = axle.gears[axle.meshGearIdx];
             axle.phaseOffset = GearMath.calculateChildPhase(
-                parent.phaseOffset || 0, orbitAngle, parentGearTeeth, childGearTeeth
+                parent.phaseOffset || 0, meshAngle, parentGearTeeth, childGearTeeth
             );
         }
     });
@@ -605,8 +644,8 @@ function drawFrame(timestamp) {
             var ctx = anim.ctx.context;
             var cen = graphics.map_point(anim.ctx, axle.pos);
 
-            // Spoke rotation follows orbit direction (without meshDir)
-            var spokeRotation = anim.baseAngle * axle.speedMult;
+            // Spoke rotation matches gear rotation (all CW-positive now)
+            var spokeRotation = rotation;
             var spokeWidth = cs.spokeWidth;
             var halfWidth = spokeWidth / 2;
             var numSpokes = cs.spokeCount;
@@ -629,42 +668,71 @@ function drawFrame(timestamp) {
             }
             ctx.closePath();
 
-            // Inner cutout: arcs between spokes, with spoke channels extending inward
-            var outerRimR = graphics.map_point(anim.ctx, [axle.pos[0] + cs.outerRimInner, axle.pos[1]])[0] - cen[0];
-            var innerRingOuterR = graphics.map_point(anim.ctx, [axle.pos[0] + cs.innerRingOuter, axle.pos[1]])[0] - cen[0];
+            // Inner cutout: arcs between spokes with CONSTANT WIDTH spokes (parallel edges)
+            var outerRimRWorld = cs.outerRimInner;
+            var innerRingOuterRWorld = cs.innerRingOuter;
+            var outerRimR = graphics.map_point(anim.ctx, [axle.pos[0] + outerRimRWorld, axle.pos[1]])[0] - cen[0];
+            var innerRingOuterR = graphics.map_point(anim.ctx, [axle.pos[0] + innerRingOuterRWorld, axle.pos[1]])[0] - cen[0];
+            var halfWidthMapped = graphics.map_point(anim.ctx, [halfWidth, 0])[0] - graphics.map_point(anim.ctx, [0, 0])[0];
 
             for (var i = 0; i < numSpokes; i++) {
-                var spokeAngle = spokeRotation + i * 2 * Math.PI / numSpokes;
-                var nextSpokeAngle = spokeRotation + (i + 1) * 2 * Math.PI / numSpokes;
+                var spokeAngle = -(spokeRotation + i * 2 * Math.PI / numSpokes);
+                var nextSpokeAngle = -(spokeRotation + (i + 1) * 2 * Math.PI / numSpokes);
 
-                // Arc from end of this spoke to start of next spoke (CCW direction for cutout)
-                var arcStart = spokeAngle + halfSpokeAngle;
-                var arcEnd = nextSpokeAngle - halfSpokeAngle;
+                // For constant-width spokes, calculate where parallel edges intersect circles
+                // Spoke perpendicular direction
+                var perpX = -Math.sin(spokeAngle);
+                var perpY = Math.cos(spokeAngle);
+                var nextPerpX = -Math.sin(nextSpokeAngle);
+                var nextPerpY = Math.cos(nextSpokeAngle);
+
+                // Outer rim intersection angles for constant-width spoke edges
+                // Right edge of current spoke (offset by -halfWidth perpendicular)
+                var outerRightAngle = Math.atan2(
+                    outerRimR * Math.sin(spokeAngle) - halfWidthMapped * perpY,
+                    outerRimR * Math.cos(spokeAngle) - halfWidthMapped * perpX
+                );
+                // Left edge of next spoke (offset by +halfWidth perpendicular)
+                var outerLeftAngle = Math.atan2(
+                    outerRimR * Math.sin(nextSpokeAngle) + halfWidthMapped * nextPerpY,
+                    outerRimR * Math.cos(nextSpokeAngle) + halfWidthMapped * nextPerpX
+                );
+
+                // Inner ring intersection angles
+                var innerLeftAngle = Math.atan2(
+                    innerRingOuterR * Math.sin(nextSpokeAngle) + halfWidthMapped * nextPerpY,
+                    innerRingOuterR * Math.cos(nextSpokeAngle) + halfWidthMapped * nextPerpX
+                );
+                var innerRightAngle = Math.atan2(
+                    innerRingOuterR * Math.sin(nextSpokeAngle) - halfWidthMapped * nextPerpY,
+                    innerRingOuterR * Math.cos(nextSpokeAngle) - halfWidthMapped * nextPerpX
+                );
 
                 if (i === 0) {
-                    // Start at the right edge of first spoke at outer rim
-                    var startX = cen[0] + outerRimR * Math.cos(arcStart);
-                    var startY = cen[1] + outerRimR * Math.sin(arcStart);
+                    var startX = cen[0] + outerRimR * Math.cos(outerRightAngle);
+                    var startY = cen[1] + outerRimR * Math.sin(outerRightAngle);
                     ctx.moveTo(startX, startY);
                 }
 
-                // Arc between spokes at outer rim radius
-                ctx.arc(cen[0], cen[1], outerRimR, arcStart, arcEnd, false);
+                // Arc between spokes at outer rim
+                ctx.arc(cen[0], cen[1], outerRimR, outerRightAngle, outerLeftAngle, true);
 
-                // Line inward along left edge of next spoke
-                var inX = cen[0] + innerRingOuterR * Math.cos(arcEnd);
-                var inY = cen[1] + innerRingOuterR * Math.sin(arcEnd);
-                ctx.lineTo(inX, inY);
+                // Line down left edge of next spoke (parallel, constant width)
+                var innerLeftX = cen[0] + innerRingOuterR * Math.cos(innerLeftAngle);
+                var innerLeftY = cen[1] + innerRingOuterR * Math.sin(innerLeftAngle);
+                ctx.lineTo(innerLeftX, innerLeftY);
 
                 // Arc across spoke root at inner ring
-                var spokeRootStart = arcEnd;
-                var spokeRootEnd = nextSpokeAngle + halfSpokeAngle;
-                ctx.arc(cen[0], cen[1], innerRingOuterR, spokeRootStart, spokeRootEnd, false);
+                ctx.arc(cen[0], cen[1], innerRingOuterR, innerLeftAngle, innerRightAngle, true);
 
-                // Line outward along right edge of next spoke
-                var outX = cen[0] + outerRimR * Math.cos(spokeRootEnd);
-                var outY = cen[1] + outerRimR * Math.sin(spokeRootEnd);
-                ctx.lineTo(outX, outY);
+                // Line up right edge of next spoke (parallel, constant width)
+                var nextOuterRightAngle = Math.atan2(
+                    outerRimR * Math.sin(nextSpokeAngle) - halfWidthMapped * nextPerpY,
+                    outerRimR * Math.cos(nextSpokeAngle) - halfWidthMapped * nextPerpX
+                );
+                var outerRightX = cen[0] + outerRimR * Math.cos(nextOuterRightAngle);
+                var outerRightY = cen[1] + outerRimR * Math.sin(nextOuterRightAngle);
+                ctx.lineTo(outerRightX, outerRightY);
             }
             ctx.closePath();
 
@@ -674,7 +742,7 @@ function drawFrame(timestamp) {
             ctx.lineWidth = 1;
             ctx.stroke();
 
-            // Draw inner ring (separate shape)
+            // Draw inner ring (the continuous ring)
             ctx.beginPath();
             var innerRingInnerR = graphics.map_point(anim.ctx, [axle.pos[0] + cs.innerRingInner, axle.pos[1]])[0] - cen[0];
 
@@ -687,25 +755,135 @@ function drawFrame(timestamp) {
             ctx.strokeStyle = '#0f0f23';
             ctx.lineWidth = 1;
             ctx.stroke();
+
+            // Draw circles around each planet axle
+            var orbitRadius = puzzle.planetary.orbitRadius;
+            var axleCircleRadius = 2.3 * puzzle.module;  // Circle around planet gear
+            var axleHoleRadius = 0.8;  // Same as axle center hole
+
+            for (var i = 0; i < numSpokes; i++) {
+                // Use same angle calculation as orbit (CCW convention)
+                var orbitAngle = spokeRotation + i * 2 * Math.PI / numSpokes;
+                // Planet position in world coords (CCW: negate sin)
+                var planetWorldX = axle.pos[0] + orbitRadius * Math.cos(orbitAngle);
+                var planetWorldY = axle.pos[1] - orbitRadius * Math.sin(orbitAngle);
+                var planetScreen = graphics.map_point(anim.ctx, [planetWorldX, planetWorldY]);
+
+                var axleCircleRadiusMapped = graphics.map_point(anim.ctx, [0 + axleCircleRadius, 0])[0] - graphics.map_point(anim.ctx, [0, 0])[0];
+                var axleHoleRadiusMapped = graphics.map_point(anim.ctx, [0 + axleHoleRadius, 0])[0] - graphics.map_point(anim.ctx, [0, 0])[0];
+
+                ctx.beginPath();
+                // Outer circle
+                ctx.arc(planetScreen[0], planetScreen[1], axleCircleRadiusMapped, 0, 2 * Math.PI, false);
+                // Inner hole (cutout)
+                ctx.moveTo(planetScreen[0] + axleHoleRadiusMapped, planetScreen[1]);
+                ctx.arc(planetScreen[0], planetScreen[1], axleHoleRadiusMapped, 0, 2 * Math.PI, true);
+
+                ctx.fillStyle = graphics.rgb_to_hex(col[0], col[1], col[2]);
+                ctx.fill('evenodd');
+
+                // Stroke the inner hole
+                ctx.beginPath();
+                ctx.arc(planetScreen[0], planetScreen[1], axleHoleRadiusMapped, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = '#0f0f23';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Calculate exposed arcs on planet circle:
+                // 1. Inner arc (inside carrier ring inner edge) - facing toward center
+                // 2. Two side arcs (in cutout areas beside the spoke) - between spoke edges and inner ring outer edge
+
+                var spokeAngleForPlanet = spokeRotation + i * 2 * Math.PI / numSpokes;
+
+                // Angle from planet center toward carrier center
+                var toCenterAngle = Math.atan2(cen[1] - planetScreen[1], cen[0] - planetScreen[0]);
+                // Angle from planet center toward outer ring (away from center)
+                var toOuterAngle = toCenterAngle + Math.PI;
+
+                var r1 = axleCircleRadiusMapped;
+                var d = Math.sqrt(Math.pow(planetScreen[0] - cen[0], 2) + Math.pow(planetScreen[1] - cen[1], 2));
+
+                // Circle-circle intersection helper
+                function circleCircleAngles(carrierRadius) {
+                    if (d > 0 && d < r1 + carrierRadius && d > Math.abs(r1 - carrierRadius)) {
+                        var cosA = (d * d + r1 * r1 - carrierRadius * carrierRadius) / (2 * d * r1);
+                        cosA = Math.max(-1, Math.min(1, cosA));
+                        var halfAngle = Math.acos(cosA);
+                        return { right: toCenterAngle - halfAngle, left: toCenterAngle + halfAngle };
+                    }
+                    return null;
+                }
+
+                // Intersections with inner ring edges
+                var innerRingInnerRMapped = graphics.map_point(anim.ctx, [axle.pos[0] + cs.innerRingInner, axle.pos[1]])[0] - cen[0];
+                var innerEdgeAngles = circleCircleAngles(innerRingInnerRMapped);
+                var outerEdgeAngles = circleCircleAngles(innerRingOuterR);
+
+                // Spoke edge angles (where planet circle meets spoke edges)
+                // Spoke is in the toOuterAngle direction (away from carrier center, toward outer ring)
+                var spokeHalfAngle = Math.asin(Math.min(1, halfWidthMapped / r1));
+                var rightSpokeAngle = toOuterAngle - spokeHalfAngle;
+                var leftSpokeAngle = toOuterAngle + spokeHalfAngle;
+
+                ctx.lineWidth = 2;
+
+                // Stroke visible arcs on planet circle
+                // Going CCW: innerEdge.right → innerEdge.left (inner) → outerEdge.left →
+                //            rightSpokeAngle (cutout) → leftSpokeAngle (spoke) → outerEdge.right (cutout)
+                ctx.strokeStyle = '#0f0f23';
+
+                if (innerEdgeAngles) {
+                    ctx.beginPath();
+                    ctx.arc(planetScreen[0], planetScreen[1], axleCircleRadiusMapped,
+                            innerEdgeAngles.right, innerEdgeAngles.left, false);
+                    ctx.stroke();
+                }
+
+                if (outerEdgeAngles) {
+                    ctx.beginPath();
+                    ctx.arc(planetScreen[0], planetScreen[1], axleCircleRadiusMapped,
+                            leftSpokeAngle, outerEdgeAngles.right, false);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(planetScreen[0], planetScreen[1], axleCircleRadiusMapped,
+                            outerEdgeAngles.left, rightSpokeAngle, false);
+                    ctx.stroke();
+                }
+            }
         } else if (axle.isInternal) {
-            // Draw internal (ring) gear
+            // Draw internal (ring) gear with optional external teeth
             for (var g = 0; g < axle.gears.length; g++) {
                 var shapeData = axle.gearShapes[g];
                 var innerProfile = gears.rotate(shapeData.profile, rotation);
                 innerProfile = gears.translate(innerProfile, axle.pos);
 
                 var col = axle.colors[g];
-
-                // Draw as ring: outer circle + inner teeth cutout using evenodd
                 var ctx = anim.ctx.context;
+                var cen = graphics.map_point(anim.ctx, axle.pos);
+
                 ctx.beginPath();
 
-                // Outer circle (clockwise)
-                var outerR = shapeData.outerRadius;
-                var cen = graphics.map_point(anim.ctx, axle.pos);
-                var edge = graphics.map_point(anim.ctx, [axle.pos[0] + outerR, axle.pos[1]]);
-                var r = edge[0] - cen[0];
-                ctx.arc(cen[0], cen[1], r, 0, 2 * Math.PI, false);
+                // Outer boundary: either gear teeth or plain circle
+                if (shapeData.outerProfile) {
+                    // External teeth on outside
+                    var outerProfile = gears.rotate(shapeData.outerProfile, rotation);
+                    outerProfile = gears.translate(outerProfile, axle.pos);
+                    var mappedOuter = outerProfile.map(function(p) {
+                        return graphics.map_point(anim.ctx, p);
+                    });
+                    ctx.moveTo(mappedOuter[0][0], mappedOuter[0][1]);
+                    for (var j = 1; j < mappedOuter.length; j++) {
+                        ctx.lineTo(mappedOuter[j][0], mappedOuter[j][1]);
+                    }
+                    ctx.closePath();
+                } else {
+                    // Plain circle outer boundary
+                    var outerR = shapeData.outerRadius;
+                    var edge = graphics.map_point(anim.ctx, [axle.pos[0] + outerR, axle.pos[1]]);
+                    var r = edge[0] - cen[0];
+                    ctx.arc(cen[0], cen[1], r, 0, 2 * Math.PI, false);
+                }
 
                 // Inner profile (counter-clockwise by reversing points)
                 var mappedInner = innerProfile.map(function(p) {
