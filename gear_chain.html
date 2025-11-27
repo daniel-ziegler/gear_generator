@@ -14,9 +14,36 @@ body {
 canvas {
     background-color: #16213e;
 }
+#controls {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.7);
+    padding: 15px;
+    border-radius: 8px;
+    color: #fff;
+    font-family: monospace;
+    z-index: 100;
+}
+#controls label {
+    display: block;
+    margin-bottom: 10px;
+}
+#controls input[type="range"] {
+    width: 150px;
+    margin-left: 10px;
+}
 </style>
 </head>
 <body>
+<div id="controls">
+    <label>Sun Speed: <span id="sunVal">1.00</span>
+        <input type="range" id="sunSlider" min="-2" max="2" step="0.05" value="1">
+    </label>
+    <label>Carrier Speed: <span id="carrierVal">-0.25</span>
+        <input type="range" id="carrierSlider" min="-1" max="1" step="0.05" value="-0.25">
+    </label>
+</div>
 <canvas id="gear_canvas" width="800" height="800"></canvas>
 
 <script src="gear_math.js"></script>
@@ -211,8 +238,8 @@ var gears = {
         var Rp = module * num_teeth / 2.0;
         var toothHeight = maxR - minR;
 
-        // Outer rim thickness - make it substantial
-        var rimThick = rim_thickness || 4 * module;
+        // Outer rim thickness
+        var rimThick = rim_thickness || 2.5 * module;
         var Ro = Rp + rimThick;
 
         // Inner edge of teeth (tooth roots) - positioned for visual meshing with planets
@@ -265,23 +292,20 @@ function setupPuzzle() {
     var center = [0, 0];
     var axles = [];
 
-    // Planetary gearset
-    // Ring teeth = Sun + 2*Planet for proper meshing
+    // Planetary gearset configuration
     var sunTeeth = 12;
     var planetTeeth = 6;
-    var ringTeeth = sunTeeth + 2 * planetTeeth;  // 24
+    var ringTeeth = sunTeeth + 2 * planetTeeth;  // Must equal sun + 2*planet for proper mesh
     var numPlanets = 3;
-    var carrierSpeed = -0.25;  // Negative = opposite direction, slower overall
-
-    // Planet spin rate in world frame: ω_p = ω_c - (Z_s/Z_p) × (ω_s - ω_c)
-    var planetSpinRate = carrierSpeed - (sunTeeth / planetTeeth) * (1 - carrierSpeed);
-    // = 0.25 - 2 * 0.75 = -1.25
-
-    // Ring speed formula adjusted for our CW-positive rendering convention:
-    // Sun contribution is negative (external mesh reverses), carrier contribution is positive
-    var sunSpeed = 1;  // Sun rotating normally
     var gearRatio = sunTeeth / planetTeeth;
-    var ringSpeed = (-sunTeeth * sunSpeed - (sunTeeth + ringTeeth) * carrierSpeed) / ringTeeth;
+
+    // Store config for dynamic updates
+    puzzle.planetary = {
+        sunTeeth: sunTeeth,
+        planetTeeth: planetTeeth,
+        ringTeeth: ringTeeth,
+        gearRatio: gearRatio
+    };
 
     // Ring gear (internal teeth)
     axles.push({
@@ -290,7 +314,7 @@ function setupPuzzle() {
         gears: [ringTeeth],
         colors: [[60, 60, 80]],
         meshParent: null,
-        speedMult: ringSpeed,
+        speedMult: 0,  // Updated dynamically
         meshDir: 1,
         phaseOffset: 0,
         isInternal: true,
@@ -304,14 +328,12 @@ function setupPuzzle() {
         gears: [sunTeeth],
         colors: [[255, 200, 80]],
         meshParent: null,
-        speedMult: sunSpeed,
+        speedMult: 1,  // Updated dynamically
         meshDir: 1,
         phaseOffset: 0
     });
 
     // Planet gears - orbit around sun on carrier
-    // speedMult from sun: gearRatio * sunSpeed (0 when sun stopped)
-    var planetSpeedMult = gearRatio * sunSpeed;
     for (var i = 0; i < numPlanets; i++) {
         var angle = i * 2 * Math.PI / numPlanets;
         axles.push({
@@ -322,10 +344,10 @@ function setupPuzzle() {
             meshParent: 'sun',
             meshGearIdx: 0,
             parentGearIdx: 0,
-            speedMult: planetSpeedMult,
+            speedMult: gearRatio,  // Updated dynamically
             meshDir: -1,
             orbits: 'sun',
-            orbitSpeed: carrierSpeed,
+            orbitSpeed: 0,  // Updated dynamically
             orbitRadius: meshDist(sunTeeth, planetTeeth),
             orbitPhase: angle
         });
@@ -466,9 +488,29 @@ function drawFrame(timestamp) {
     anim.lastTime = timestamp;
     anim.baseAngle += puzzle.baseSpeed * dt;
 
+    // Read slider values
+    var sunSpeed = parseFloat(document.getElementById('sunSlider').value);
+    var carrierSpeed = parseFloat(document.getElementById('carrierSlider').value);
+    document.getElementById('sunVal').textContent = sunSpeed.toFixed(2);
+    document.getElementById('carrierVal').textContent = carrierSpeed.toFixed(2);
+
+    // Update speeds based on sliders
+    var p = puzzle.planetary;
+    var ringSpeed = (-p.sunTeeth * sunSpeed - (p.sunTeeth + p.ringTeeth) * carrierSpeed) / p.ringTeeth;
+
     // Update orbiting gears
     var axleMap = {};
     puzzle.axles.forEach(function(a) { axleMap[a.id] = a; });
+
+    // Apply dynamic speeds
+    axleMap['sun'].speedMult = sunSpeed;
+    axleMap['ring'].speedMult = ringSpeed;
+    puzzle.axles.forEach(function(axle) {
+        if (axle.orbits) {
+            axle.speedMult = p.gearRatio * sunSpeed;
+            axle.orbitSpeed = carrierSpeed;
+        }
+    });
 
     puzzle.axles.forEach(function(axle) {
         if (axle.orbits) {
@@ -560,7 +602,6 @@ function drawFrame(timestamp) {
         graphics.color(anim.ctx, 30, 30, 50);
         graphics.fillCircle(anim.ctx, axle.pos, 0.8);
     });
-
 
     requestAnimationFrame(drawFrame);
 }
