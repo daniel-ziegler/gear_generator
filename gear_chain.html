@@ -193,6 +193,46 @@ var gears = {
     rotate: function(gear, angle) {
         var c = Math.cos(angle), s = Math.sin(angle);
         return gear.map(function(p) { return [c*p[0] + s*p[1], -s*p[0] + c*p[1]]; });
+    },
+
+    // Generate internal (ring) gear - normal teeth pointing inward
+    generateInternal: function(module, pressure_angle, num_teeth, rim_thickness) {
+        // Generate a normal external gear, then flip it so teeth point inward
+        var externalGear = this.generate(module, pressure_angle, num_teeth);
+
+        // Find min and max radius of the external gear
+        var maxR = 0, minR = Infinity;
+        for (var i = 0; i < externalGear.length; i++) {
+            var r = this.point_radius(externalGear[i]);
+            if (r > maxR) maxR = r;
+            if (r < minR) minR = r;
+        }
+
+        var Rp = module * num_teeth / 2.0;
+        var toothHeight = maxR - minR;
+
+        // Outer rim thickness - make it substantial
+        var rimThick = rim_thickness || 4 * module;
+        var Ro = Rp + rimThick;
+
+        // Inner edge of teeth (tooth roots) - positioned for visual meshing with planets
+        // Standard would be Rp + 1.2*module, but we offset slightly inward for better visuals
+        var rootR = Rp + 1.0 * module;  // Teeth extend slightly further inward
+
+        // Mirror and offset: flip profile and position so roots are at rootR
+        var self = this;
+        var internalProfile = externalGear.map(function(p) {
+            var r = self.point_radius(p);
+            var angle = Math.atan2(p[1], p[0]);
+            // Flip: tips become roots, roots become tips
+            var flippedR = maxR + minR - r;
+            // Offset to position roots at rootR
+            var offset = rootR - maxR;
+            var newR = flippedR + offset;
+            return [newR * Math.cos(angle), newR * Math.sin(angle)];
+        });
+
+        return { profile: internalProfile, outerRadius: Ro };
     }
 };
 
@@ -200,7 +240,7 @@ var gears = {
 var puzzle = {
     module: 1.0,
     pa: 20 * Math.PI / 180,
-    baseSpeed: 0.4,
+    baseSpeed: 0.8,
 
     // Axles: each has position, array of gear teeth, and mesh info
     // meshParent: which axle this meshes with
@@ -225,95 +265,66 @@ function setupPuzzle() {
     var center = [0, 0];
     var axles = [];
 
-    // Center gear: 12 teeth
+    // Planetary gearset
+    // Ring teeth = Sun + 2*Planet for proper meshing
+    var sunTeeth = 12;
+    var planetTeeth = 6;
+    var ringTeeth = sunTeeth + 2 * planetTeeth;  // 24
+    var numPlanets = 3;
+    var carrierSpeed = 0;  // Stopped carrier for testing
+
+    // Planet spin rate in world frame: ω_p = ω_c - (Z_s/Z_p) × (ω_s - ω_c)
+    var planetSpinRate = carrierSpeed - (sunTeeth / planetTeeth) * (1 - carrierSpeed);
+    // = 0.25 - 2 * 0.75 = -1.25
+
+    // Ring speed derived from tooth-tracking requirement for internal mesh:
+    // Planet effective spin = speedMult*meshDir + phaseChangeRate
+    //   = -gearRatio - (1 + gearRatio) * carrierSpeed
+    // For internal mesh: ringSpeed * ringTeeth = effectivePlanetSpin * planetTeeth
+    var gearRatio = sunTeeth / planetTeeth;
+    var effectivePlanetSpin = -gearRatio - (1 + gearRatio) * carrierSpeed;
+    var ringSpeed = effectivePlanetSpin * planetTeeth / ringTeeth;
+
+    // Ring gear (internal teeth)
     axles.push({
-        id: 'center',
+        id: 'ring',
         pos: center,
-        gears: [12],
-        colors: [[255, 100, 100]],
+        gears: [ringTeeth],
+        colors: [[60, 60, 80]],
         meshParent: null,
-        speedMult: 1
+        speedMult: ringSpeed,
+        meshDir: 1,
+        phaseOffset: 0,
+        isInternal: true,
+        zPriority: -1
     });
 
-    // Branch 0: Simple gear at 30° (ratio 1.5)
-    var ang0 = 30 * Math.PI / 180;
+    // Sun gear (center)
     axles.push({
-        id: 'b0',
-        pos: posAt(center, ang0, meshDist(12, 18)),
-        gears: [18],
-        colors: [[255, 160, 80]],
-        meshParent: 'center',
-        meshGearIdx: 0,
-        parentGearIdx: 0,
-        isTerminal: true
+        id: 'sun',
+        pos: center,
+        gears: [sunTeeth],
+        colors: [[255, 200, 80]],
+        meshParent: null
     });
 
-    // Branch 1: Compound gear at 120° - intermediate(20) meshes center, output(8) drives terminal
-    var ang1 = 120 * Math.PI / 180;
-    var b1_pos = posAt(center, ang1, meshDist(12, 20));
-    axles.push({
-        id: 'b1_compound',
-        pos: b1_pos,
-        gears: [20, 8],  // 20 meshes with center, 8 is output
-        colors: [[80, 200, 80], [60, 160, 60]],
-        meshParent: 'center',
-        meshGearIdx: 0,
-        parentGearIdx: 0
-    });
-
-    // Terminal gear driven by compound's output gear
-    var ang1_out = 120 * Math.PI / 180 + 0.6;  // Offset angle from compound
-    var b1_term_pos = posAt(b1_pos, ang1_out, meshDist(8, 16));
-    axles.push({
-        id: 'b1_term',
-        pos: b1_term_pos,
-        gears: [16],
-        colors: [[100, 255, 100]],
-        meshParent: 'b1_compound',
-        meshGearIdx: 0,
-        parentGearIdx: 1,  // Meshes with the 8-tooth output gear
-        isTerminal: true
-    });
-
-    // Branch 2: Simple gear at 210° (ratio 2.0)
-    var ang2 = 210 * Math.PI / 180;
-    axles.push({
-        id: 'b2',
-        pos: posAt(center, ang2, meshDist(12, 24)),
-        gears: [24],
-        colors: [[80, 150, 255]],
-        meshParent: 'center',
-        meshGearIdx: 0,
-        parentGearIdx: 0,
-        isTerminal: true
-    });
-
-    // Branch 3: Compound gear at 300° - intermediate(15) meshes center, output(10) drives terminal
-    var ang3 = 300 * Math.PI / 180;
-    var b3_pos = posAt(center, ang3, meshDist(12, 15));
-    axles.push({
-        id: 'b3_compound',
-        pos: b3_pos,
-        gears: [15, 10],
-        colors: [[200, 80, 200], [160, 60, 160]],
-        meshParent: 'center',
-        meshGearIdx: 0,
-        parentGearIdx: 0
-    });
-
-    var ang3_out = 300 * Math.PI / 180 - 0.5;
-    var b3_term_pos = posAt(b3_pos, ang3_out, meshDist(10, 25));
-    axles.push({
-        id: 'b3_term',
-        pos: b3_term_pos,
-        gears: [25],
-        colors: [[255, 120, 255]],
-        meshParent: 'b3_compound',
-        meshGearIdx: 0,
-        parentGearIdx: 1,
-        isTerminal: true,
-        zPriority: 1
-    });
+    // Planet gears - orbit around sun on carrier
+    for (var i = 0; i < numPlanets; i++) {
+        var angle = i * 2 * Math.PI / numPlanets;
+        axles.push({
+            id: 'planet' + i,
+            pos: posAt(center, angle, meshDist(sunTeeth, planetTeeth)),
+            gears: [planetTeeth],
+            colors: [[100, 180, 255]],
+            meshParent: 'sun',
+            meshGearIdx: 0,
+            parentGearIdx: 0,
+            orbits: 'sun',
+            orbitSpeed: carrierSpeed,
+            orbitRadius: meshDist(sunTeeth, planetTeeth),
+            orbitPhase: angle
+        });
+    }
 
     puzzle.axles = axles;
 
@@ -323,13 +334,25 @@ function setupPuzzle() {
 
     // Pre-generate gear shapes
     var teethCache = {};
+    var internalCache = {};
     puzzle.axles.forEach(function(axle) {
-        axle.gearShapes = axle.gears.map(function(teeth) {
-            if (!teethCache[teeth]) {
-                teethCache[teeth] = gears.generate(puzzle.module, puzzle.pa, teeth);
-            }
-            return teethCache[teeth];
-        });
+        if (axle.isInternal) {
+            // Internal gear - generate ring profile
+            axle.gearShapes = axle.gears.map(function(teeth) {
+                if (!internalCache[teeth]) {
+                    internalCache[teeth] = gears.generateInternal(puzzle.module, puzzle.pa, teeth);
+                }
+                return internalCache[teeth];
+            });
+        } else {
+            // External gear
+            axle.gearShapes = axle.gears.map(function(teeth) {
+                if (!teethCache[teeth]) {
+                    teethCache[teeth] = gears.generate(puzzle.module, puzzle.pa, teeth);
+                }
+                return teethCache[teeth];
+            });
+        }
     });
 }
 
@@ -337,11 +360,16 @@ function calculateSpeeds() {
     var axleMap = {};
     puzzle.axles.forEach(function(a) { axleMap[a.id] = a; });
 
-    // BFS from center to calculate speed multipliers and mesh directions
-    var queue = ['center'];
-    axleMap['center'].speedMult = 1;
-    axleMap['center'].meshDir = 1;
-    axleMap['center'].depth = 0;
+    // Find root axle (no parent, and speedMult not already set)
+    var root = puzzle.axles.find(function(a) {
+        return a.meshParent === null && a.speedMult === undefined;
+    });
+    if (!root) return;  // All axles already configured
+
+    var queue = [root.id];
+    root.speedMult = 1;
+    root.meshDir = 1;
+    root.depth = 0;
 
     while (queue.length > 0) {
         var currentId = queue.shift();
@@ -368,10 +396,14 @@ function calculatePhaseOffsets() {
     var axleMap = {};
     puzzle.axles.forEach(function(a) { axleMap[a.id] = a; });
 
-    axleMap['center'].phaseOffset = 0;
+    // Find root axle (no parent, and phaseOffset not already set)
+    var root = puzzle.axles.find(function(a) {
+        return a.meshParent === null && a.phaseOffset === undefined;
+    });
+    if (!root) return;  // All axles already configured
 
-    // BFS from center to compute phase offsets
-    var queue = ['center'];
+    root.phaseOffset = 0;
+    var queue = [root.id];
 
     while (queue.length > 0) {
         var currentId = queue.shift();
@@ -429,6 +461,27 @@ function drawFrame(timestamp) {
     anim.lastTime = timestamp;
     anim.baseAngle += puzzle.baseSpeed * dt;
 
+    // Update orbiting gears
+    var axleMap = {};
+    puzzle.axles.forEach(function(a) { axleMap[a.id] = a; });
+
+    puzzle.axles.forEach(function(axle) {
+        if (axle.orbits) {
+            var parent = axleMap[axle.orbits];
+            var orbitAngle = anim.baseAngle * axle.orbitSpeed + (axle.orbitPhase || 0);
+            axle.pos = [
+                parent.pos[0] + axle.orbitRadius * Math.cos(orbitAngle),
+                parent.pos[1] + axle.orbitRadius * Math.sin(orbitAngle)
+            ];
+            // Recalculate phase for new mesh angle
+            var parentGearTeeth = parent.gears[axle.parentGearIdx];
+            var childGearTeeth = axle.gears[axle.meshGearIdx];
+            axle.phaseOffset = GearMath.calculateChildPhase(
+                parent.phaseOffset || 0, orbitAngle, parentGearTeeth, childGearTeeth
+            );
+        }
+    });
+
     graphics.clear(anim.ctx);
 
     // Draw gears back to front: large gears first, small gears on top, zPriority last
@@ -443,19 +496,57 @@ function drawFrame(timestamp) {
     sortedAxles.forEach(function(axle) {
         var rotation = anim.baseAngle * axle.speedMult * axle.meshDir + (axle.phaseOffset || 0);
 
-        // Draw gears on this axle: largest first, smallest on top
-        var gearIndices = [];
-        for (var i = 0; i < axle.gears.length; i++) gearIndices.push(i);
-        gearIndices.sort(function(a, b) { return axle.gears[b] - axle.gears[a]; });
+        if (axle.isInternal) {
+            // Draw internal (ring) gear
+            for (var g = 0; g < axle.gears.length; g++) {
+                var shapeData = axle.gearShapes[g];
+                var innerProfile = gears.rotate(shapeData.profile, rotation);
+                innerProfile = gears.translate(innerProfile, axle.pos);
 
-        for (var gi = 0; gi < gearIndices.length; gi++) {
-            var g = gearIndices[gi];
-            var shape = gears.rotate(axle.gearShapes[g], rotation);
-            shape = gears.translate(shape, axle.pos);
+                var col = axle.colors[g];
 
-            var col = axle.colors[g];
-            graphics.color(anim.ctx, col[0], col[1], col[2]);
-            graphics.polyline(anim.ctx, shape, true);
+                // Draw as ring: outer circle + inner teeth cutout using evenodd
+                var ctx = anim.ctx.context;
+                ctx.beginPath();
+
+                // Outer circle (clockwise)
+                var outerR = shapeData.outerRadius;
+                var cen = graphics.map_point(anim.ctx, axle.pos);
+                var edge = graphics.map_point(anim.ctx, [axle.pos[0] + outerR, axle.pos[1]]);
+                var r = edge[0] - cen[0];
+                ctx.arc(cen[0], cen[1], r, 0, 2 * Math.PI, false);
+
+                // Inner profile (counter-clockwise by reversing points)
+                var mappedInner = innerProfile.map(function(p) {
+                    return graphics.map_point(anim.ctx, p);
+                });
+                ctx.moveTo(mappedInner[0][0], mappedInner[0][1]);
+                for (var j = mappedInner.length - 1; j >= 0; j--) {
+                    ctx.lineTo(mappedInner[j][0], mappedInner[j][1]);
+                }
+                ctx.closePath();
+
+                ctx.fillStyle = graphics.rgb_to_hex(col[0], col[1], col[2]);
+                ctx.fill('evenodd');
+                ctx.strokeStyle = '#0f0f23';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+        } else {
+            // Draw external gears
+            var gearIndices = [];
+            for (var i = 0; i < axle.gears.length; i++) gearIndices.push(i);
+            gearIndices.sort(function(a, b) { return axle.gears[b] - axle.gears[a]; });
+
+            for (var gi = 0; gi < gearIndices.length; gi++) {
+                var g = gearIndices[gi];
+                var shape = gears.rotate(axle.gearShapes[g], rotation);
+                shape = gears.translate(shape, axle.pos);
+
+                var col = axle.colors[g];
+                graphics.color(anim.ctx, col[0], col[1], col[2]);
+                graphics.polyline(anim.ctx, shape, true);
+            }
         }
     });
 
@@ -465,48 +556,6 @@ function drawFrame(timestamp) {
         graphics.fillCircle(anim.ctx, axle.pos, 0.8);
     });
 
-    // Draw "1" label inside center gear, rotating with it
-    var centerAxle = puzzle.axles.find(function(a) { return a.id === 'center'; });
-    var centerRotation = anim.baseAngle * centerAxle.speedMult * centerAxle.meshDir;
-    var cen = graphics.map_point(anim.ctx, centerAxle.pos);
-
-    graphics.color(anim.ctx, 255, 255, 255);
-    graphics.fillCircle(anim.ctx, centerAxle.pos, 1.2);
-
-    // Rotate text with gear
-    anim.ctx.context.save();
-    anim.ctx.context.translate(cen[0], cen[1]);
-    anim.ctx.context.rotate(-centerRotation);
-    anim.ctx.context.font = 'bold 20px Arial';
-    anim.ctx.context.fillStyle = '#000';
-    anim.ctx.context.textAlign = 'center';
-    anim.ctx.context.textBaseline = 'middle';
-    anim.ctx.context.fillText('1', 0, 0);
-    anim.ctx.context.restore();
-
-    // Draw branch number labels inside terminal/leaf gears, rotating with them
-    puzzle.axles.forEach(function(axle) {
-        if (!axle.isTerminal) return;
-
-        var rotation = anim.baseAngle * axle.speedMult * axle.meshDir + (axle.phaseOffset || 0);
-        var pos = graphics.map_point(anim.ctx, axle.pos);
-
-        graphics.color(anim.ctx, 255, 255, 255);
-        graphics.fillCircle(anim.ctx, axle.pos, 2.0);
-
-        // Extract branch number from id (e.g., 'b0' -> '0')
-        var branchNum = axle.id.replace('b', '');
-
-        anim.ctx.context.save();
-        anim.ctx.context.translate(pos[0], pos[1]);
-        anim.ctx.context.rotate(-rotation);
-        anim.ctx.context.font = 'bold 28px Arial';
-        anim.ctx.context.fillStyle = '#000';
-        anim.ctx.context.textAlign = 'center';
-        anim.ctx.context.textBaseline = 'middle';
-        anim.ctx.context.fillText(branchNum, 0, 0);
-        anim.ctx.context.restore();
-    });
 
     requestAnimationFrame(drawFrame);
 }
