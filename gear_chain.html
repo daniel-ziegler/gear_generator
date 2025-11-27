@@ -225,41 +225,95 @@ function setupPuzzle() {
     var center = [0, 0];
     var axles = [];
 
-    // Center gear: 10 teeth (larger for more mesh options)
+    // Center gear: 12 teeth
     axles.push({
         id: 'center',
         pos: center,
-        gears: [10],
+        gears: [12],
         colors: [[255, 100, 100]],
         meshParent: null,
         speedMult: 1
     });
 
-    // 8 branches at ARBITRARY angles (not multiples of 45°)
-    // Testing if error correlates with angle in a continuous way
-    // All gears have same tooth count (15) to isolate angle as the variable
-    //
-    // Angles chosen: 0°, 20°, 55°, 90°, 120°, 160°, 200°, 250°
+    // Branch 0: Simple gear at 30° (ratio 1.5)
+    var ang0 = 30 * Math.PI / 180;
+    axles.push({
+        id: 'b0',
+        pos: posAt(center, ang0, meshDist(12, 18)),
+        gears: [18],
+        colors: [[255, 160, 80]],
+        meshParent: 'center',
+        meshGearIdx: 0,
+        parentGearIdx: 0,
+        isTerminal: true
+    });
 
-    var angles = [0, 20, 55, 90, 120, 160, 200, 250];
-    var childTeeth = 15;
+    // Branch 1: Compound gear at 120° - intermediate(20) meshes center, output(8) drives terminal
+    var ang1 = 120 * Math.PI / 180;
+    var b1_pos = posAt(center, ang1, meshDist(12, 20));
+    axles.push({
+        id: 'b1_compound',
+        pos: b1_pos,
+        gears: [20, 8],  // 20 meshes with center, 8 is output
+        colors: [[80, 200, 80], [60, 160, 60]],
+        meshParent: 'center',
+        meshGearIdx: 0,
+        parentGearIdx: 0
+    });
 
-    for (var i = 0; i < angles.length; i++) {
-        var angDeg = angles[i];
-        var angRad = angDeg * Math.PI / 180;
-        var pos = posAt(center, angRad, meshDist(10, childTeeth));
-        axles.push({
-            id: 'b' + i,
-            pos: pos,
-            gears: [childTeeth],
-            colors: [[255 - i * 25, 100 + i * 15, 80 + i * 20]],
-            meshParent: 'center',
-            meshGearIdx: 0,
-            parentGearIdx: 0,
-            isTerminal: true,
-            label: angDeg + '°'
-        });
-    }
+    // Terminal gear driven by compound's output gear
+    var ang1_out = 120 * Math.PI / 180 + 0.6;  // Offset angle from compound
+    var b1_term_pos = posAt(b1_pos, ang1_out, meshDist(8, 16));
+    axles.push({
+        id: 'b1_term',
+        pos: b1_term_pos,
+        gears: [16],
+        colors: [[100, 255, 100]],
+        meshParent: 'b1_compound',
+        meshGearIdx: 0,
+        parentGearIdx: 1,  // Meshes with the 8-tooth output gear
+        isTerminal: true
+    });
+
+    // Branch 2: Simple gear at 210° (ratio 2.0)
+    var ang2 = 210 * Math.PI / 180;
+    axles.push({
+        id: 'b2',
+        pos: posAt(center, ang2, meshDist(12, 24)),
+        gears: [24],
+        colors: [[80, 150, 255]],
+        meshParent: 'center',
+        meshGearIdx: 0,
+        parentGearIdx: 0,
+        isTerminal: true
+    });
+
+    // Branch 3: Compound gear at 300° - intermediate(15) meshes center, output(10) drives terminal
+    var ang3 = 300 * Math.PI / 180;
+    var b3_pos = posAt(center, ang3, meshDist(12, 15));
+    axles.push({
+        id: 'b3_compound',
+        pos: b3_pos,
+        gears: [15, 10],
+        colors: [[200, 80, 200], [160, 60, 160]],
+        meshParent: 'center',
+        meshGearIdx: 0,
+        parentGearIdx: 0
+    });
+
+    var ang3_out = 300 * Math.PI / 180 - 0.5;
+    var b3_term_pos = posAt(b3_pos, ang3_out, meshDist(10, 25));
+    axles.push({
+        id: 'b3_term',
+        pos: b3_term_pos,
+        gears: [25],
+        colors: [[255, 120, 255]],
+        meshParent: 'b3_compound',
+        meshGearIdx: 0,
+        parentGearIdx: 1,
+        isTerminal: true,
+        zPriority: 1
+    });
 
     puzzle.axles = axles;
 
@@ -314,7 +368,6 @@ function calculatePhaseOffsets() {
     var axleMap = {};
     puzzle.axles.forEach(function(a) { axleMap[a.id] = a; });
 
-    // Center gear has no phase offset
     axleMap['center'].phaseOffset = 0;
 
     // BFS from center to compute phase offsets
@@ -329,37 +382,13 @@ function calculatePhaseOffsets() {
                 var parentGearTeeth = parent.gears[axle.parentGearIdx];
                 var childGearTeeth = axle.gears[axle.meshGearIdx];
 
-                // Calculate the angle from parent center to child center (mesh direction)
                 var dx = axle.pos[0] - parent.pos[0];
                 var dy = axle.pos[1] - parent.pos[1];
                 var meshAngle = Math.atan2(dy, dx);
 
-                var parentPhase = parent.phaseOffset || 0;
-
-                // Use the standard GearMath calculation
-                var offset = GearMath.calculateChildPhase(
-                    parentPhase, meshAngle, parentGearTeeth, childGearTeeth
+                axle.phaseOffset = GearMath.calculateChildPhase(
+                    parent.phaseOffset || 0, meshAngle, parentGearTeeth, childGearTeeth
                 );
-
-                // Compound gear correction:
-                // When parent is a compound gear with different input/output teeth,
-                // and child teeth doesn't match either, add halfTooth back
-                // (canceling the subtraction in the standard formula)
-                if (parent.gears.length > 1) {
-                    var inputTeeth = parent.gears[parent.meshGearIdx || 0];
-                    var outputTeeth = parent.gears[axle.parentGearIdx];
-                    if (inputTeeth !== outputTeeth &&
-                        childGearTeeth !== inputTeeth &&
-                        childGearTeeth !== outputTeeth) {
-                        var halfTooth = Math.PI / childGearTeeth;
-                        offset += halfTooth;
-                        // Re-normalize
-                        offset = offset % (2 * Math.PI);
-                        if (offset < 0) offset += 2 * Math.PI;
-                    }
-                }
-
-                axle.phaseOffset = offset;
 
                 queue.push(axle.id);
             }

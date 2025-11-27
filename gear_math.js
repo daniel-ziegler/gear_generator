@@ -15,18 +15,11 @@ var GearMath = {
      * @returns {number} Phase offset for child gear, normalized to [0, 2π)
      */
     calculateChildPhase: function(parentPhase, meshAngle, parentTeeth, childTeeth) {
-        var childMeshAngle = meshAngle + Math.PI;
         var ratio = parentTeeth / childTeeth;
         var halfTooth = Math.PI / childTeeth;
 
-        // Derived from mesh condition: parent_tooth_phase + child_gap_phase = π
-        // where tooth_phase(angle) = (angle + rotation) * teeth
-        //
-        // Note: theta_cross only affects involute profile shape, not tooth center position.
-        // Tooth centers are at exact multiples of 2π/n.
-        //
-        // Full derivation gives:
-        // phase_c = halfTooth - π - meshAngle*(1 + ratio) - parentPhase*ratio
+        // Derived from mesh condition: parent tooth meets child gap at contact point.
+        // tooth_phase(angle) = (angle + rotation) * teeth; phase=0 means tooth, phase=π means gap
         var offset = halfTooth - Math.PI - meshAngle * (1 + ratio) - parentPhase * ratio;
 
         // Normalize to [0, 2π)
