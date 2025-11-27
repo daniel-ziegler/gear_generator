@@ -235,88 +235,31 @@ function setupPuzzle() {
         speedMult: 1
     });
 
-    // 8 branches at 45° intervals - testing varied NON-INTEGER ratios
-    // With center gear = 10 teeth
+    // 8 branches at ARBITRARY angles (not multiples of 45°)
+    // Testing if error correlates with angle in a continuous way
+    // All gears have same tooth count (15) to isolate angle as the variable
+    //
+    // Angles chosen: 0°, 20°, 55°, 90°, 120°, 160°, 200°, 250°
 
-    // ========== Branch 0: 1.1:1 (0°, right) ==========
-    // center(10) -> terminal(11), ratio 11/10 = 1.1
-    var ang0 = 0;
-    var b0_pos = posAt(center, ang0, meshDist(10, 11));
-    axles.push({
-        id: 'b0', pos: b0_pos, gears: [11], colors: [[255, 80, 80]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '1.1'
-    });
+    var angles = [0, 20, 55, 90, 120, 160, 200, 250];
+    var childTeeth = 15;
 
-    // ========== Branch 1: 1.2:1 (45°) ==========
-    // center(10) -> terminal(12), ratio 12/10 = 1.2
-    var ang1 = Math.PI / 4;
-    var b1_pos = posAt(center, ang1, meshDist(10, 12));
-    axles.push({
-        id: 'b1', pos: b1_pos, gears: [12], colors: [[255, 160, 40]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '1.2'
-    });
-
-    // ========== Branch 2: 1.3:1 (90°, up) ==========
-    // center(10) -> terminal(13), ratio 13/10 = 1.3
-    var ang2 = Math.PI / 2;
-    var b2_pos = posAt(center, ang2, meshDist(10, 13));
-    axles.push({
-        id: 'b2', pos: b2_pos, gears: [13], colors: [[255, 220, 50]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '1.3'
-    });
-
-    // ========== Branch 3: 1.5:1 (135°) ==========
-    // center(10) -> terminal(15), ratio 15/10 = 1.5 ("half" ratio)
-    var ang3 = 3 * Math.PI / 4;
-    var b3_pos = posAt(center, ang3, meshDist(10, 15));
-    axles.push({
-        id: 'b3', pos: b3_pos, gears: [15], colors: [[80, 200, 80]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '1.5'
-    });
-
-    // ========== Branch 4: 1.7:1 (180°, left) ==========
-    // center(10) -> terminal(17), ratio 17/10 = 1.7
-    var ang4 = Math.PI;
-    var b4_pos = posAt(center, ang4, meshDist(10, 17));
-    axles.push({
-        id: 'b4', pos: b4_pos, gears: [17], colors: [[80, 200, 200]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '1.7'
-    });
-
-    // ========== Branch 5: 1.9:1 (225°) ==========
-    // center(10) -> terminal(19), ratio 19/10 = 1.9 (close to 2)
-    var ang5 = 5 * Math.PI / 4;
-    var b5_pos = posAt(center, ang5, meshDist(10, 19));
-    axles.push({
-        id: 'b5', pos: b5_pos, gears: [19], colors: [[150, 100, 255]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '1.9'
-    });
-
-    // ========== Branch 6: 2.1:1 (270°, down) ==========
-    // center(10) -> terminal(21), ratio 21/10 = 2.1 (just above 2)
-    var ang6 = 3 * Math.PI / 2;
-    var b6_pos = posAt(center, ang6, meshDist(10, 21));
-    axles.push({
-        id: 'b6', pos: b6_pos, gears: [21], colors: [[255, 100, 150]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '2.1'
-    });
-
-    // ========== Branch 7: 2.5:1 (315°) ==========
-    // center(10) -> terminal(25), ratio 25/10 = 2.5 ("half" ratio)
-    var ang7 = 7 * Math.PI / 4;
-    var b7_pos = posAt(center, ang7, meshDist(10, 25));
-    axles.push({
-        id: 'b7', pos: b7_pos, gears: [25], colors: [[200, 200, 100]],
-        meshParent: 'center', meshGearIdx: 0, parentGearIdx: 0, isTerminal: true,
-        label: '2.5'
-    });
+    for (var i = 0; i < angles.length; i++) {
+        var angDeg = angles[i];
+        var angRad = angDeg * Math.PI / 180;
+        var pos = posAt(center, angRad, meshDist(10, childTeeth));
+        axles.push({
+            id: 'b' + i,
+            pos: pos,
+            gears: [childTeeth],
+            colors: [[255 - i * 25, 100 + i * 15, 80 + i * 20]],
+            meshParent: 'center',
+            meshGearIdx: 0,
+            parentGearIdx: 0,
+            isTerminal: true,
+            label: angDeg + '°'
+        });
+    }
 
     puzzle.axles = axles;
 

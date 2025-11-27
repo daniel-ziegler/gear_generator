@@ -19,8 +19,15 @@ var GearMath = {
         var ratio = parentTeeth / childTeeth;
         var halfTooth = Math.PI / childTeeth;
 
-        // Standard formula
-        var offset = childMeshAngle + (meshAngle - parentPhase) * ratio - halfTooth;
+        // Derived from mesh condition: parent_tooth_phase + child_gap_phase = π
+        // where tooth_phase(angle) = (angle + rotation) * teeth
+        //
+        // Note: theta_cross only affects involute profile shape, not tooth center position.
+        // Tooth centers are at exact multiples of 2π/n.
+        //
+        // Full derivation gives:
+        // phase_c = halfTooth - π - meshAngle*(1 + ratio) - parentPhase*ratio
+        var offset = halfTooth - Math.PI - meshAngle * (1 + ratio) - parentPhase * ratio;
 
         // Normalize to [0, 2π)
         offset = offset % (2 * Math.PI);
