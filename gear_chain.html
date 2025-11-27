@@ -271,19 +271,17 @@ function setupPuzzle() {
     var planetTeeth = 6;
     var ringTeeth = sunTeeth + 2 * planetTeeth;  // 24
     var numPlanets = 3;
-    var carrierSpeed = 0;  // Stopped carrier for testing
+    var carrierSpeed = -0.25;  // Negative = opposite direction, slower overall
 
     // Planet spin rate in world frame: ω_p = ω_c - (Z_s/Z_p) × (ω_s - ω_c)
     var planetSpinRate = carrierSpeed - (sunTeeth / planetTeeth) * (1 - carrierSpeed);
     // = 0.25 - 2 * 0.75 = -1.25
 
-    // Ring speed derived from tooth-tracking requirement for internal mesh:
-    // Planet effective spin = speedMult*meshDir + phaseChangeRate
-    //   = -gearRatio - (1 + gearRatio) * carrierSpeed
-    // For internal mesh: ringSpeed * ringTeeth = effectivePlanetSpin * planetTeeth
+    // Ring speed formula adjusted for our CW-positive rendering convention:
+    // Sun contribution is negative (external mesh reverses), carrier contribution is positive
+    var sunSpeed = 1;  // Sun rotating normally
     var gearRatio = sunTeeth / planetTeeth;
-    var effectivePlanetSpin = -gearRatio - (1 + gearRatio) * carrierSpeed;
-    var ringSpeed = effectivePlanetSpin * planetTeeth / ringTeeth;
+    var ringSpeed = (-sunTeeth * sunSpeed - (sunTeeth + ringTeeth) * carrierSpeed) / ringTeeth;
 
     // Ring gear (internal teeth)
     axles.push({
@@ -305,10 +303,15 @@ function setupPuzzle() {
         pos: center,
         gears: [sunTeeth],
         colors: [[255, 200, 80]],
-        meshParent: null
+        meshParent: null,
+        speedMult: sunSpeed,
+        meshDir: 1,
+        phaseOffset: 0
     });
 
     // Planet gears - orbit around sun on carrier
+    // speedMult from sun: gearRatio * sunSpeed (0 when sun stopped)
+    var planetSpeedMult = gearRatio * sunSpeed;
     for (var i = 0; i < numPlanets; i++) {
         var angle = i * 2 * Math.PI / numPlanets;
         axles.push({
@@ -319,6 +322,8 @@ function setupPuzzle() {
             meshParent: 'sun',
             meshGearIdx: 0,
             parentGearIdx: 0,
+            speedMult: planetSpeedMult,
+            meshDir: -1,
             orbits: 'sun',
             orbitSpeed: carrierSpeed,
             orbitRadius: meshDist(sunTeeth, planetTeeth),
